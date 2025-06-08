@@ -2,7 +2,7 @@
 # AUTOMATIC1111 Gemini Prompt Writer Extension
 #
 # Author: Your name/handle
-# Version: 1.9 - Reworked prompt for tokenized output, not natural language.
+# Version: 2.0 - Enforced spaces after commas for proper tokenization.
 #
 # This extension integrates the Google Gemini API into the AUTOMATIC1111 Web UI
 # to generate detailed Stable Diffusion prompts from simple user input.
@@ -18,28 +18,28 @@ import json
 # --- Configuration ---
 
 # --- MODIFIED SYSTEM PROMPT ---
-# This version is heavily modified to force a token-based, comma-separated output
-# and strictly avoid natural language sentences.
+# Added a critical rule to enforce a space after each comma.
 DEFAULT_SYSTEM_PROMPT = """
 You are a technical prompt engineer for the Stable Diffusion image generation model.
 Your task is to convert a user's simple idea into a highly detailed, token-based prompt.
 The output MUST be a comma-separated list of keywords and descriptive phrases. DO NOT use full sentences.
 
 **Positive Prompt Rules:**
-- **Tokenization:** Every descriptive element MUST be a "token" separated by a comma.
+- **Formatting:** Keywords must be separated by a comma followed by a single space.
+- **CRITICAL RULE:** The format MUST be `keyword1, keyword2, keyword3`. Do NOT use `keyword1,keyword2,keyword3`. A space after the comma is required.
 - **Structure:** Follow this specific order:
-    1.  **Subject:** Start with the main subject, including its count and core identity (e.g., `1girl, solo, cyberpunk mercenary` or `a majestic dragon`).
-    2.  **Appearance & Attire:** Detail the subject's physical features, clothing, and gear (e.g., `long pink hair, glowing cybernetic eyes, tactical gear, leather jacket`).
-    3.  **Pose & Action:** Describe the subject's pose and what they are doing (e.g., `standing, leaning against a wall, holding a futuristic rifle, looking at viewer`).
-    4.  **Setting & Environment:** Describe the background and location (e.g., `neon-lit alleyway, rainy, puddles on the ground, cyberpunk city, skyscrapers in background`).
-    5.  **Lighting & Atmosphere:** Detail the lighting conditions and mood (e.g., `dramatic lighting, rim light, volumetric fog, glowing neon signs`).
-    6.  **Style & Quality:** End with style and quality keywords (e.g., `(masterpiece), (best quality), ultra-detailed, sharp focus, professional digital art, cinematic`).
-- **Emphasis:** Use weighting like `(keyword:1.2)` or `((keyword))` to increase the importance of key concepts.
+    1.  **Subject:** (e.g., `1girl, solo, cyberpunk mercenary`).
+    2.  **Appearance & Attire:** (e.g., `long pink hair, glowing cybernetic eyes, tactical gear`).
+    3.  **Pose & Action:** (e.g., `standing, leaning against a wall, looking at viewer`).
+    4.  **Setting & Environment:** (e.g., `neon-lit alleyway, rainy, cyberpunk city`).
+    5.  **Lighting & Atmosphere:** (e.g., `dramatic lighting, rim light, volumetric fog`).
+    6.  **Style & Quality:** (e.g., `(masterpiece), (best quality), ultra-detailed, sharp focus`).
+- **Emphasis:** Use weighting like `(keyword:1.2)` or `((keyword))` to increase importance.
 
 **Negative Prompt Rules:**
-- **Format:** Also a comma-separated list of keywords.
+- **Format:** Also a comma-separated list with a space after each comma.
 - **Content:** List things to avoid, such as poor quality, mutations, or unwanted elements.
-- **Keywords:** Use terms like `(worst quality, low quality:1.4)`, `deformed, ugly, disfigured`, `bad anatomy, mutated hands, extra limbs`, `fused fingers`, `watermark, text, signature`.
+- **Keywords:** Use terms like `(worst quality, low quality:1.4), deformed, ugly, disfigured, bad anatomy, mutated hands, extra limbs, fused fingers, watermark, text, signature`.
 
 **Example:**
 - **User's Request:** "A wizard in a library"
@@ -157,12 +157,10 @@ class GeminiPromptWriter(scripts.Script):
             )
             
             response_text = response.text
-            # The JSON keys are "positive_prompt" and "negative_prompt" as requested in the system prompt
             prompts = json.loads(response_text)
             positive_prompt = prompts.get("positive_prompt", "")
             negative_prompt = prompts.get("negative_prompt", "")
             print("🟢 Successfully generated prompts from Gemini.")
-            # The JS expects "positive" and "negative"
             return json.dumps({"positive": positive_prompt, "negative": negative_prompt})
         except Exception as e:
             message = f"🔴 An error occurred: {e}"
