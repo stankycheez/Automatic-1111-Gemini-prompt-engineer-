@@ -2,7 +2,7 @@
 # AUTOMATIC1111 Gemini Prompt Writer Extension
 #
 # Author: Your name/handle
-# Version: 1.7 - Disabled safety filters and diversified prompt language.
+# Version: 1.9 - Reworked prompt for tokenized output, not natural language.
 #
 # This extension integrates the Google Gemini API into the AUTOMATIC1111 Web UI
 # to generate detailed Stable Diffusion prompts from simple user input.
@@ -12,30 +12,38 @@ import gradio as gr
 import modules.scripts as scripts
 from modules import shared, script_callbacks
 import google.generativeai as genai
-from google.generativeai.types import HarmCategory, HarmBlockThreshold # <-- ADDED THIS IMPORT
+from google.generativeai.types import HarmCategory, HarmBlockThreshold
 import json
 
 # --- Configuration ---
 
 # --- MODIFIED SYSTEM PROMPT ---
+# This version is heavily modified to force a token-based, comma-separated output
+# and strictly avoid natural language sentences.
 DEFAULT_SYSTEM_PROMPT = """
-You are an expert prompt engineer for generative AI image models, specifically Stable Diffusion.
-Your goal is to take a user's simple idea and expand it into a detailed, highly-creative, and diverse prompt.
-
-Generate a positive prompt and a negative prompt based on the user's request.
+You are a technical prompt engineer for the Stable Diffusion image generation model.
+Your task is to convert a user's simple idea into a highly detailed, token-based prompt.
+The output MUST be a comma-separated list of keywords and descriptive phrases. DO NOT use full sentences.
 
 **Positive Prompt Rules:**
-- **Structure:** Start with the core subject, describe it in detail, then describe the environment, atmosphere, lighting, and composition. End with a varied list of quality and style keywords.
-- **Be Creative:** Do not use repetitive or generic phrases. Your goal is to generate a unique and artistic prompt every time.
-- **Keywords:** Use descriptive, evocative keywords separated by commas.
-- **Emphasis:** Use parentheses `()` to add weight to important concepts, but do so sparingly and on different keywords each time.
-- **Quality Keywords:** AVOID using the same quality keywords repeatedly. Cycle through a diverse vocabulary like `(best quality)`, `(ultra-detailed)`, `(masterpiece)`, `photorealistic`, `sharp focus`, `8k`, `vivid colors`, `professional photo`, `cinematic`, `intricate details`. DO NOT use all of them at once.
-- **Subject:** Describe the subject's appearance, clothing, pose, action, and expression in detail. Build a narrative.
-- **Environment & Lighting:** Describe the background, time of day, and atmosphere with evocative language (e.g., 'eerie twilight', 'sun-drenched ruins', 'neon-soaked cyberpunk alley'). Specify the lighting source and style (e.g., 'dramatic rim lighting', 'soft volumetric light', 'caustic reflections').
+- **Tokenization:** Every descriptive element MUST be a "token" separated by a comma.
+- **Structure:** Follow this specific order:
+    1.  **Subject:** Start with the main subject, including its count and core identity (e.g., `1girl, solo, cyberpunk mercenary` or `a majestic dragon`).
+    2.  **Appearance & Attire:** Detail the subject's physical features, clothing, and gear (e.g., `long pink hair, glowing cybernetic eyes, tactical gear, leather jacket`).
+    3.  **Pose & Action:** Describe the subject's pose and what they are doing (e.g., `standing, leaning against a wall, holding a futuristic rifle, looking at viewer`).
+    4.  **Setting & Environment:** Describe the background and location (e.g., `neon-lit alleyway, rainy, puddles on the ground, cyberpunk city, skyscrapers in background`).
+    5.  **Lighting & Atmosphere:** Detail the lighting conditions and mood (e.g., `dramatic lighting, rim light, volumetric fog, glowing neon signs`).
+    6.  **Style & Quality:** End with style and quality keywords (e.g., `(masterpiece), (best quality), ultra-detailed, sharp focus, professional digital art, cinematic`).
+- **Emphasis:** Use weighting like `(keyword:1.2)` or `((keyword))` to increase the importance of key concepts.
 
 **Negative Prompt Rules:**
-- **Content:** List everything you want to avoid in the image. Be thorough.
-- **Keywords:** Use terms like `(worst quality, low quality:1.4)`, `ugly`, `deformed`, `blurry`, `disfigured`, `bad anatomy`, `mutated hands`, `extra limbs`, `fused fingers`, `watermark`, `text`, `signature`, `grainy`.
+- **Format:** Also a comma-separated list of keywords.
+- **Content:** List things to avoid, such as poor quality, mutations, or unwanted elements.
+- **Keywords:** Use terms like `(worst quality, low quality:1.4)`, `deformed, ugly, disfigured`, `bad anatomy, mutated hands, extra limbs`, `fused fingers`, `watermark, text, signature`.
+
+**Example:**
+- **User's Request:** "A wizard in a library"
+- **Correct Output for Positive Prompt:** `1man, old wizard, long white beard, wise expression, wearing ornate blue robes, holding a glowing staff, standing in a vast library, endless bookshelves, floating books, magical atmosphere, shafts of light from high windows, cinematic lighting, masterpiece, best quality, fantasy art, intricate details`
 
 **Output Format:**
 You MUST reply with ONLY a JSON object in the following format, with no other text before or after it:
@@ -46,6 +54,7 @@ You MUST reply with ONLY a JSON object in the following format, with no other te
 """
 
 # --- Extension Logic ---
+# (The rest of your script remains the same)
 
 class GeminiPromptWriter(scripts.Script):
 
@@ -128,7 +137,6 @@ class GeminiPromptWriter(scripts.Script):
             print(message)
             return json.dumps({"positive": "", "negative": "", "error": message})
 
-        # --- ADDED SAFETY SETTINGS ---
         safety_settings = {
             HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
             HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
@@ -136,24 +144,25 @@ class GeminiPromptWriter(scripts.Script):
             HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
         }
 
-        print("🔵 Contacting Gemini API with minimal safety filters...")
+        print("🔵 Contacting Gemini API for tokenized prompt...")
         try:
             genai.configure(api_key=api_key)
             model = genai.GenerativeModel('gemini-1.5-flash')
             full_prompt = f"{DEFAULT_SYSTEM_PROMPT}\n\nUser's Request: {user_input}"
             
-            # --- MODIFIED API CALL ---
             response = model.generate_content(
                 full_prompt,
                 generation_config=genai.types.GenerationConfig(response_mime_type="application/json"),
-                safety_settings=safety_settings # <-- ADDED THIS PARAMETER
+                safety_settings=safety_settings
             )
             
             response_text = response.text
+            # The JSON keys are "positive_prompt" and "negative_prompt" as requested in the system prompt
             prompts = json.loads(response_text)
             positive_prompt = prompts.get("positive_prompt", "")
             negative_prompt = prompts.get("negative_prompt", "")
             print("🟢 Successfully generated prompts from Gemini.")
+            # The JS expects "positive" and "negative"
             return json.dumps({"positive": positive_prompt, "negative": negative_prompt})
         except Exception as e:
             message = f"🔴 An error occurred: {e}"
